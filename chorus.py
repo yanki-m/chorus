@@ -410,8 +410,7 @@ def render_stats_strip() -> None:
 
     c1, c2 = st.columns([2, 1])
     c1.markdown(
-        f'<div class="kpi"><div class="val">{total}</div>'
-        f'<div class="lab">memories</div>'
+        f'<div class="kpi"><div class="val">{total} memories</div>'
         f'{breakdown_html}</div>',
         unsafe_allow_html=True,
     )
@@ -433,12 +432,13 @@ def render_agent_card(ident: dict) -> None:
     st.markdown(
         f'<div class="agent-card" style="border-color:{ident["color"]};'
         f'background:{ident["bg_tint"]}">'
-        f'<div class="name" style="color:{ident["color"]}">'
-        f'{ident["emoji"]} {ident["display"]}'
+        f'<div class="name" style="color:{ident["color"]};'
+        f'display:flex;justify-content:space-between;align-items:baseline">'
+        f'<span>{ident["emoji"]} {ident["display"]}</span>'
+        f'<span>{count}</span>'
         f'</div>'
         f'<div class="sub">{ident["subtitle"]}</div>'
-        f'<div class="stats"><b>{count}</b> recent writes · '
-        f'last seen {last_seen}</div>'
+        f'<div class="stats">last seen {last_seen}</div>'
         f'<div class="stats" style="margin-top:4px;opacity:0.6">'
         f'setup: <code>{ident["setup_doc"]}</code></div>'
         f'</div>',
