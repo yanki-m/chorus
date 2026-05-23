@@ -108,7 +108,8 @@ st.markdown(
                  border: 1px solid #7850c8; color: #5a3aa3;
                  margin-bottom: 12px; }
   .kpi        { border: 1px solid rgba(120,80,200,0.25); border-radius: 10px;
-                padding: 8px 14px; background: rgba(120,80,200,0.04); }
+                padding: 8px 14px; background: rgba(120,80,200,0.04);
+                height: 100%; box-sizing: border-box; }
   .kpi .val   { font-size: 1.6rem; font-weight: 700; color: #5a3aa3;
                 line-height: 1.1; }
   .kpi .lab   { font-size: 0.72rem; color: #666; margin-top: 2px; }
@@ -390,6 +391,7 @@ def render_stats_strip() -> None:
             aid = m.get("agent_id")
             if aid:
                 by_agent[aid] = by_agent.get(aid, 0) + 1
+    last_write = format_relative(mems_local[0].get("created_at", "")) if mems_local else "never"
 
     # Per-surface breakdown (its own card on the right)
     breakdown_lines: list[str] = []
@@ -413,9 +415,10 @@ def render_stats_strip() -> None:
         else '<div class="lab" style="opacity:0.5">no writes yet</div>'
     )
 
-    c1, c2 = st.columns([1, 2])
+    c1, c2 = st.columns([1, 1])
     c1.markdown(
-        f'<div class="kpi"><div class="val">{total} memories</div></div>',
+        f'<div class="kpi"><div class="val">{total} memories</div>'
+        f'<div class="kpi-sub">last write · {last_write}</div></div>',
         unsafe_allow_html=True,
     )
     c2.markdown(
