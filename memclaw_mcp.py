@@ -22,7 +22,7 @@ from typing import Any, AsyncIterator
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from protocol import MemclawConfig
+from config import MemclawConfig
 
 
 @asynccontextmanager

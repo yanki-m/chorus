@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 from memclaw_mcp import call_memclaw_tool, open_mcp
-from protocol import MemclawConfig
+from config import MemclawConfig
 
 load_dotenv()
 

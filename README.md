@@ -34,7 +34,7 @@ their native runtimes; memclaw is the shared substrate.
 | --- | --- |
 | `chorus.py` | The Streamlit dashboard — fleet cards + live memory feed + erase-all |
 | `memclaw_mcp.py` | MCP session + helpers for `memclaw_list` / `memclaw_write` against the shared tenant |
-| `protocol.py` | `MemclawConfig` dataclass with `from_env()` loader |
+| `config.py` | `MemclawConfig` dataclass with `from_env()` loader |
 | `smoke_test.py` | Pure MCP round-trip — verifies wiring without spending any LLM tokens |
 | `requirements.txt` | Three deps: `mcp`, `python-dotenv`, `streamlit` |
 | `.env.example` | The four `MEMCLAW_*` vars the dashboard reads |

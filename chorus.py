@@ -30,7 +30,7 @@ from memclaw_mcp import (  # noqa: E402
     open_mcp,
     register_dashboard_agent,
 )
-from protocol import MemclawConfig  # noqa: E402
+from config import MemclawConfig  # noqa: E402
 
 _env_defaults = MemclawConfig.from_env()
 

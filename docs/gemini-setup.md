@@ -149,7 +149,7 @@ load_dotenv()
 
 from adapters import GoogleADKAgent
 from prompts import build_system_prompt
-from protocol import MemclawConfig
+from config import MemclawConfig
 
 cfg = MemclawConfig.from_env()
 gemini = GoogleADKAgent(
