@@ -277,10 +277,10 @@ with st.sidebar:
     fleet_id = st.text_input("Fleet ID", value=_env_defaults.fleet_id)
 
     auto_refresh = st.toggle(
-        "Auto-refresh feed (10s)",
+        "Auto-refresh feed (30s)",
         value=False,
         key="auto_refresh",
-        help="Re-fetches the memory feed every 10 seconds. Cards pulse when their recall_count changes between polls.",
+        help="Re-fetches the memory feed every 30 seconds. Cards pulse when their recall_count changes between polls.",
     )
 
     st.divider()
@@ -593,35 +593,37 @@ def render_memory_card(m: dict, pulsed_ids: set) -> None:
     if tags:
         inner.append("".join(f'<span class="mem-tag">#{t}</span>' for t in tags))
 
-    st.markdown(
-        f'<div class="mem-card{pulse_class}" style="border-left-color:{color};'
-        f'background:{bg}">{"".join(inner)}</div>',
-        unsafe_allow_html=True,
-    )
-
-    with st.popover("⌃ details", use_container_width=False):
-        st.markdown(f"**Content**\n\n{m.get('content') or '(no content)'}")
-        if summary:
-            st.markdown(f"**Summary**\n\n{summary}")
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Type", mtype or "—")
-        weight = m.get("weight")
-        d2.metric("Weight", f"{weight:.2f}" if isinstance(weight, (int, float)) else "—")
-        d3.metric("Status", m.get("status") or "—")
-        d4.metric("Recalls", recall_count)
-        st.caption(
-            f"`{memory_id}` · visibility=`{visibility}` · created {when}"
-            + (
-                f" · last recalled {format_relative(m.get('last_recalled_at', ''))}"
-                if m.get("last_recalled_at")
-                else ""
-            )
+    card_col, btn_col = st.columns([20, 1])
+    with card_col:
+        st.markdown(
+            f'<div class="mem-card{pulse_class}" style="border-left-color:{color};'
+            f'background:{bg}">{"".join(inner)}</div>',
+            unsafe_allow_html=True,
         )
-        if tags:
-            st.markdown("**Tags:** " + " ".join(f"`#{t}`" for t in tags))
-        if meta:
-            with st.expander("Raw metadata", expanded=False):
-                st.json(meta)
+    with btn_col:
+        with st.popover("⋮", help="Details", use_container_width=False):
+            st.markdown(f"**Content**\n\n{m.get('content') or '(no content)'}")
+            if summary:
+                st.markdown(f"**Summary**\n\n{summary}")
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Type", mtype or "—")
+            weight = m.get("weight")
+            d2.metric("Weight", f"{weight:.2f}" if isinstance(weight, (int, float)) else "—")
+            d3.metric("Status", m.get("status") or "—")
+            d4.metric("Recalls", recall_count)
+            st.caption(
+                f"`{memory_id}` · visibility=`{visibility}` · created {when}"
+                + (
+                    f" · last recalled {format_relative(m.get('last_recalled_at', ''))}"
+                    if m.get("last_recalled_at")
+                    else ""
+                )
+            )
+            if tags:
+                st.markdown("**Tags:** " + " ".join(f"`#{t}`" for t in tags))
+            if meta:
+                with st.expander("Raw metadata", expanded=False):
+                    st.json(meta)
 
 
 def render_memory_feed() -> None:
@@ -659,7 +661,7 @@ def render_memory_feed() -> None:
 
 
 # ── Layout ──────────────────────────────────────────────────────────
-@st.fragment(run_every=10 if st.session_state.get("auto_refresh") else None)
+@st.fragment(run_every=30 if st.session_state.get("auto_refresh") else None)
 def main_panel() -> None:
     if st.session_state.get("auto_refresh"):
         do_full_refresh()
@@ -675,7 +677,7 @@ def main_panel() -> None:
 
     # ── Memories (center) ──
     with memories_col:
-        title_row = st.columns([4, 1])
+        title_row = st.columns([2, 5])
         with title_row[0]:
             st.markdown('<div class="section-h">Memories</div>', unsafe_allow_html=True)
         with title_row[1]:
