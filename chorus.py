@@ -641,18 +641,6 @@ def render_memory_feed() -> None:
         )
         return
 
-    counts = {ident["agent_id"]: 0 for ident in AGENT_IDENTITIES}
-    for m in mems_local:
-        if m.get("__written_by") in counts:
-            counts[m["__written_by"]] += 1
-    summary_parts = [f"{_ident(k)['display']}: {v}" for k, v in counts.items() if v]
-    plural = "y" if len(mems_local) == 1 else "ies"
-    summary_tail = ("  ·  " + "  ·  ".join(summary_parts)) if summary_parts else ""
-    st.caption(
-        f"**{len(mems_local)} memor{plural}** across tenant "
-        f"`{tenant_id}` (all fleets){summary_tail}"
-    )
-
     for m in mems_local:
         render_memory_card(m, pulsed_ids)
 
@@ -686,7 +674,6 @@ def main_panel() -> None:
             ):
                 do_full_refresh()
                 st.rerun()
-        st.caption("Every write to the tenant, attributed by writer. Cards pulse when another surface recalls one.")
         render_stats_strip()
         st.write("")
         render_memory_feed()
