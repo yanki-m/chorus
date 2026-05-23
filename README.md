@@ -36,14 +36,14 @@ their native runtimes; memclaw is the shared substrate.
 | `memclaw_mcp.py` | MCP session + helpers for `memclaw_list` / `memclaw_write` against the shared tenant |
 | `protocol.py` | `MemclawConfig` dataclass with `from_env()` loader |
 | `smoke_test.py` | Pure MCP round-trip — verifies wiring without spending any LLM tokens |
-| `claude-desktop-setup.md` | Wire Claude Desktop to write as `agent_id="claude-desktop"` |
-| `openai-setup.md` | Wire a ChatGPT Custom GPT to write as `agent_id="chatgpt"` |
-| `gemini-setup.md` | Dormant — kept for when Gemini comes back into the lineup |
-| `INFOGRAPHIC.md` | Design brief for the blackboard / dashboard infographic |
-| `blackboard.svg` | Rendered infographic — matches `INFOGRAPHIC.md` |
 | `requirements.txt` | Three deps: `mcp`, `python-dotenv`, `streamlit` |
 | `.env.example` | The four `MEMCLAW_*` vars the dashboard reads |
 | `LICENSE` | Apache 2.0 |
+| `docs/claude-desktop-setup.md` | Wire Claude Desktop to write as `agent_id="claude-desktop"` |
+| `docs/openai-setup.md` | Wire a ChatGPT Custom GPT to write as `agent_id="chatgpt"` |
+| `docs/gemini-setup.md` | Dormant — kept for when Gemini comes back into the lineup |
+| `docs/INFOGRAPHIC.md` | Design brief for the blackboard / dashboard infographic |
+| `docs/blackboard.svg` | Rendered infographic — matches `INFOGRAPHIC.md` |
 
 ## Setup
 
@@ -102,9 +102,9 @@ Each surface gets pinned to a stable `agent_id` so the dashboard can
 color-code its writes:
 
 - **Claude Desktop / Claude Code** → `agent_id="claude-desktop"` →
-  see [`claude-desktop-setup.md`](claude-desktop-setup.md).
+  see [`docs/claude-desktop-setup.md`](docs/claude-desktop-setup.md).
 - **ChatGPT (Custom GPT)** → `agent_id="chatgpt"` →
-  see [`openai-setup.md`](openai-setup.md).
+  see [`docs/openai-setup.md`](docs/openai-setup.md).
 
 Writes from any other `agent_id` still appear in the feed, just as
 grey-bordered "unknown writer" cards instead of getting a colored fleet

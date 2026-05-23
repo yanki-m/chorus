@@ -5,7 +5,7 @@ right. Memories arrive from native surfaces (Claude Desktop, ChatGPT)
 you've wired into the shared caura-memclaw tenant.
 
 Setup docs for native surfaces:
-    claude-desktop-setup.md, openai-setup.md.
+    docs/claude-desktop-setup.md, docs/openai-setup.md.
 
 Run:
     streamlit run chorus.py
@@ -47,7 +47,7 @@ AGENT_IDENTITIES: list[dict] = [
         "emoji": "🟠",
         "color": "#D97757",
         "bg_tint": "rgba(217,119,87,0.10)",
-        "setup_doc": "claude-desktop-setup.md",
+        "setup_doc": "docs/claude-desktop-setup.md",
     },
     {
         "agent_id": "chatgpt",
@@ -56,7 +56,7 @@ AGENT_IDENTITIES: list[dict] = [
         "emoji": "🟢",
         "color": "#10A37F",
         "bg_tint": "rgba(16,163,127,0.10)",
-        "setup_doc": "openai-setup.md",
+        "setup_doc": "docs/openai-setup.md",
     },
 ]
 
@@ -255,8 +255,8 @@ with st.sidebar:
         "### Native surfaces\n"
         "Configure your native LLM clients to write into this tenant. "
         "Then watch the activity stream.\n\n"
-        "- `claude-desktop-setup.md` — 🟠 Claude Desktop\n"
-        "- `openai-setup.md` — 🟢 ChatGPT"
+        "- `docs/claude-desktop-setup.md` — 🟠 Claude Desktop\n"
+        "- `docs/openai-setup.md` — 🟢 ChatGPT"
     )
 
 
