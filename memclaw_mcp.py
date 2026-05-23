@@ -107,3 +107,74 @@ async def register_dashboard_agent(
             "content": "chorus-dashboard online",
         },
     )
+
+
+async def semantic_recall(
+    session: ClientSession,
+    *,
+    query: str,
+    agent_id: str = DASHBOARD_AGENT_ID,
+    top_k: int = 10,
+) -> tuple[list[dict], str]:
+    """Hybrid semantic + keyword recall via ``memclaw_recall``. Returns
+    ``(rows, error_text)``; rows are tagged ``__written_by`` like
+    ``list_tenant_memories``."""
+    text, is_err = await call_memclaw_tool(
+        session,
+        "memclaw_recall",
+        {"agent_id": agent_id, "query": query, "top_k": top_k},
+    )
+    if is_err:
+        return [], text or "unknown MCP error"
+    try:
+        items = json.loads(text).get("results", [])
+    except (json.JSONDecodeError, AttributeError):
+        return [], f"unexpected response shape: {text[:200]}"
+    for m in items:
+        m["__written_by"] = m.get("agent_id") or ""
+    return items, ""
+
+
+async def fetch_insights(
+    session: ClientSession,
+    *,
+    focus: str,
+    agent_id: str = DASHBOARD_AGENT_ID,
+    scope: str = "all",
+    fleet_id: str | None = None,
+) -> tuple[dict, str]:
+    """Call ``memclaw_insights`` with a focus mode (contradictions,
+    patterns, stale, divergence, failures, discover). Returns
+    ``(response_dict, error_text)``."""
+    args: dict = {"agent_id": agent_id, "focus": focus, "scope": scope}
+    if fleet_id:
+        args["fleet_id"] = fleet_id
+    text, is_err = await call_memclaw_tool(session, "memclaw_insights", args)
+    if is_err:
+        return {}, text or "unknown MCP error"
+    try:
+        return json.loads(text), ""
+    except json.JSONDecodeError:
+        return {}, f"unexpected response shape: {text[:200]}"
+
+
+async def fetch_tenant_stats(
+    session: ClientSession,
+    *,
+    agent_id: str = DASHBOARD_AGENT_ID,
+    scope: str = "all",
+    fleet_id: str | None = None,
+) -> tuple[dict, str]:
+    """Aggregate counts via ``memclaw_stats``. Returns ``(stats, error)``.
+    ``stats`` is the raw response dict — typically contains ``total`` plus
+    breakdowns ``by_type``, ``by_agent``, ``by_status``."""
+    args: dict = {"agent_id": agent_id, "scope": scope}
+    if fleet_id:
+        args["fleet_id"] = fleet_id
+    text, is_err = await call_memclaw_tool(session, "memclaw_stats", args)
+    if is_err:
+        return {}, text or "unknown MCP error"
+    try:
+        return json.loads(text), ""
+    except json.JSONDecodeError:
+        return {}, f"unexpected response shape: {text[:200]}"

@@ -26,9 +26,12 @@ import streamlit as st  # noqa: E402
 
 from memclaw_mcp import (  # noqa: E402
     DASHBOARD_AGENT_ID,
+    fetch_insights,
+    fetch_tenant_stats,
     list_tenant_memories,
     open_mcp,
     register_dashboard_agent,
+    semantic_recall,
 )
 from config import MemclawConfig  # noqa: E402
 
@@ -86,11 +89,28 @@ st.markdown(
   .mem-tag    { display: inline-block; font-size: 0.68rem;
                 background: rgba(120,200,150,0.15); border-radius: 4px;
                 padding: 1px 6px; margin: 2px 4px 0 0; }
+  .mem-badge  { display: inline-block; font-size: 0.65rem;
+                padding: 0 4px; margin-left: 4px; opacity: 0.75;
+                vertical-align: middle; }
+  .mem-recall { display: inline-block; font-size: 0.65rem;
+                background: rgba(255,193,7,0.18); color: #8a6500;
+                border-radius: 4px; padding: 0 5px; margin-left: 6px; }
+  @keyframes pulse-recall {
+    0%   { box-shadow: 0 0 0 0 rgba(255,193,7,0.55); }
+    50%  { box-shadow: 0 0 14px 3px rgba(255,193,7,0.35); }
+    100% { box-shadow: 0 0 0 0 rgba(255,193,7,0); }
+  }
+  .mem-card.pulse { animation: pulse-recall 1.5s ease-in-out; }
   .feed-header { padding: 10px 14px; border-radius: 10px;
                  font-weight: 700; font-size: 1rem;
                  background: rgba(120,80,200,0.10);
                  border: 1px solid #7850c8; color: #5a3aa3;
                  margin-bottom: 12px; }
+  .kpi        { border: 1px solid rgba(120,80,200,0.25); border-radius: 10px;
+                padding: 8px 14px; background: rgba(120,80,200,0.04); }
+  .kpi .val   { font-size: 1.6rem; font-weight: 700; color: #5a3aa3;
+                line-height: 1.1; }
+  .kpi .lab   { font-size: 0.72rem; color: #666; margin-top: 2px; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -217,6 +237,33 @@ def format_relative(iso_str: str) -> str:
     return f"{secs // 86400}d ago"
 
 
+def _run_mcp(cfg: MemclawConfig, coro_factory):
+    """Open one MCP session, run the supplied coroutine, return its result
+    or wrap exceptions into the helper's ``(value, error_str)`` shape."""
+    async def gather():
+        async with open_mcp(cfg) as session:
+            return await coro_factory(session)
+    try:
+        return asyncio.run(gather())
+    except Exception as e:
+        return None, str(e)
+
+
+def fetch_recall(cfg: MemclawConfig, query: str, top_k: int = 10) -> tuple[list[dict], str]:
+    result = _run_mcp(cfg, lambda s: semantic_recall(s, query=query, top_k=top_k))
+    return result if result[0] is not None else ([], result[1])
+
+
+def fetch_insights_sync(cfg: MemclawConfig, focus: str) -> tuple[dict, str]:
+    result = _run_mcp(cfg, lambda s: fetch_insights(s, focus=focus, scope="all"))
+    return result if result[0] is not None else ({}, result[1])
+
+
+def fetch_stats_sync(cfg: MemclawConfig) -> tuple[dict, str]:
+    result = _run_mcp(cfg, lambda s: fetch_tenant_stats(s, scope="all"))
+    return result if result[0] is not None else ({}, result[1])
+
+
 # ── Sidebar ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### Chorus config")
@@ -224,6 +271,13 @@ with st.sidebar:
     api_key = st.text_input("API key", value=_env_defaults.api_key, type="password")
     tenant_id = st.text_input("Tenant ID", value=_env_defaults.tenant_id)
     fleet_id = st.text_input("Fleet ID", value=_env_defaults.fleet_id)
+
+    auto_refresh = st.toggle(
+        "Auto-refresh feed (10s)",
+        value=False,
+        key="auto_refresh",
+        help="Re-fetches the memory feed every 10 seconds. Cards pulse when their recall_count changes between polls.",
+    )
 
     st.divider()
     # Two-click confirm so a stray click can't nuke the tenant.
@@ -278,20 +332,76 @@ if not api_key or not tenant_id:
     st.stop()
 
 
-# ── Memory fetch (once per render unless invalidated) ───────────────
+cfg = MemclawConfig(
+    api_url=api_url, api_key=api_key, tenant_id=tenant_id, fleet_id=fleet_id
+)
+
+
+# ── Data fetch + pulse tracking ─────────────────────────────────────
+def do_full_refresh() -> None:
+    """Re-fetch memories + stats; diff recall_count against the previous
+    fetch so the feed can pulse cards whose recall_count just increased."""
+    new_memories = fetch_memories(api_url, api_key, tenant_id, fleet_id)
+    if isinstance(new_memories, list):
+        prev_recalls = st.session_state.get("prev_recalls", {})
+        new_recalls = {
+            m.get("id"): m.get("recall_count", 0) for m in new_memories if m.get("id")
+        }
+        st.session_state["pulsed_ids"] = {
+            mid
+            for mid, rc in new_recalls.items()
+            if mid in prev_recalls and prev_recalls[mid] != rc
+        }
+        st.session_state["prev_recalls"] = new_recalls
+    st.session_state["memories"] = new_memories
+    stats, _ = fetch_stats_sync(cfg)
+    st.session_state["stats"] = stats
+
+
 if "memories" not in st.session_state:
-    st.session_state["memories"] = fetch_memories(
-        api_url, api_key, tenant_id, fleet_id
+    do_full_refresh()
+
+
+# ── Render helpers ──────────────────────────────────────────────────
+def render_stats_strip() -> None:
+    stats = st.session_state.get("stats") or {}
+    mems_raw = st.session_state.get("memories", [])
+    mems_local = mems_raw if isinstance(mems_raw, list) else []
+
+    total = stats.get("total")
+    if total is None:
+        total = len(mems_local)
+    by_agent = stats.get("by_agent") or {}
+    writers = (
+        sum(1 for v in by_agent.values() if v > 0)
+        if by_agent
+        else len({m.get("agent_id") for m in mems_local if m.get("agent_id")})
+    )
+    last_write = format_relative(mems_local[0].get("created_at", "")) if mems_local else "never"
+
+    c1, c2, c3 = st.columns(3)
+    c1.markdown(
+        f'<div class="kpi"><div class="val">{total}</div>'
+        f'<div class="lab">memories in tenant</div></div>',
+        unsafe_allow_html=True,
+    )
+    c2.markdown(
+        f'<div class="kpi"><div class="val">{writers}</div>'
+        f'<div class="lab">distinct writers</div></div>',
+        unsafe_allow_html=True,
+    )
+    c3.markdown(
+        f'<div class="kpi"><div class="val">{last_write}</div>'
+        f'<div class="lab">last write</div></div>',
+        unsafe_allow_html=True,
     )
 
-mems_raw = st.session_state["memories"]
-mems: list[dict] = mems_raw if isinstance(mems_raw, list) else []
-fetch_error = mems_raw.get("error") if isinstance(mems_raw, dict) else None
 
-
-# ── Dashboard ───────────────────────────────────────────────────────
 def render_agent_card(ident: dict) -> None:
-    writer_mems = [m for m in mems if m.get("__written_by") == ident["agent_id"]]
+    mems_local = st.session_state.get("memories") or []
+    if not isinstance(mems_local, list):
+        mems_local = []
+    writer_mems = [m for m in mems_local if m.get("__written_by") == ident["agent_id"]]
     count = len(writer_mems)
     last_seen = format_relative(writer_mems[0].get("created_at", "")) if writer_mems else "never"
 
@@ -311,6 +421,205 @@ def render_agent_card(ident: dict) -> None:
     )
 
 
+def render_recall_section() -> None:
+    with st.expander("🔍 Semantic recall  ·  `memclaw_recall`", expanded=False):
+        st.caption(
+            "Natural-language query against the tenant. Hybrid semantic + "
+            "keyword retrieval with graph-enhanced expansion (up to 2 hops)."
+        )
+        query = st.text_input(
+            "Query",
+            key="recall_query_input",
+            placeholder="What does memclaw know about… ?",
+            label_visibility="collapsed",
+        )
+        cols = st.columns([3, 1, 1])
+        if cols[1].button("Search", type="primary", use_container_width=True, key="recall_btn"):
+            if query.strip():
+                results, err = fetch_recall(cfg, query.strip())
+                st.session_state["recall_result"] = (results, err, query.strip())
+        if cols[2].button("Clear", use_container_width=True, key="recall_clear"):
+            st.session_state.pop("recall_result", None)
+
+        result_tuple = st.session_state.get("recall_result")
+        if not result_tuple:
+            return
+        results, err, last_q = result_tuple
+        if err:
+            st.error(f"Recall failed: {err}")
+            return
+        if not results:
+            st.info(f"No matches for '{last_q}'.")
+            return
+        st.caption(f"Top {len(results)} for **'{last_q}'**")
+        for r in results:
+            sim = r.get("similarity") or r.get("score") or 0.0
+            writer = r.get("__written_by") or r.get("agent_id") or ""
+            ident = _ident(writer)
+            color = ident["color"] if ident else "#888"
+            display_writer = (ident["display"] if ident else writer) or "unknown"
+            when = format_relative(r.get("created_at", ""))
+            title = r.get("title") or (r.get("content") or "")[:80]
+            sim_pct = f"{sim*100:.0f}%" if sim else "—"
+            st.markdown(
+                f'<div class="mem-card" style="border-left-color:{color}">'
+                f'<div class="mem-writer" style="color:{color}">{display_writer} '
+                f'<span style="opacity:0.6;font-weight:400">· {when}</span> '
+                f'<span class="mem-recall">match {sim_pct}</span></div>'
+                f'<div class="mem-title">{title}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+
+def render_insights_section() -> None:
+    with st.expander("🧠 Insights  ·  `memclaw_insights`", expanded=False):
+        st.caption(
+            "Run reflective analyses across the tenant. Findings are also "
+            "persisted as `insight`-type memories (Karpathy Loop)."
+        )
+        focus = st.selectbox(
+            "Focus",
+            ["contradictions", "patterns", "stale", "divergence", "failures", "discover"],
+            key="insights_focus",
+        )
+        if st.button("Analyze", type="primary", use_container_width=True, key="insights_btn"):
+            result, err = fetch_insights_sync(cfg, focus)
+            st.session_state["insights_result"] = (result, err, focus)
+
+        result_tuple = st.session_state.get("insights_result")
+        if not result_tuple:
+            return
+        result, err, last_focus = result_tuple
+        if err:
+            st.error(f"Insights failed: {err}")
+            return
+        st.caption(f"Focus: **{last_focus}**")
+        findings = (
+            result.get("findings")
+            or result.get("insights")
+            or result.get("results")
+            or []
+        )
+        if findings and isinstance(findings, list):
+            for f in findings:
+                if not isinstance(f, dict):
+                    st.markdown(f"- {f}")
+                    continue
+                with st.container(border=True):
+                    t = f.get("title") or f.get("summary") or "(insight)"
+                    d = f.get("detail") or f.get("description") or f.get("content") or ""
+                    st.markdown(f"**{t}**")
+                    if d:
+                        st.markdown(d)
+                    keys = {"title", "summary", "detail", "description", "content"}
+                    rest = {k: v for k, v in f.items() if k not in keys}
+                    if rest:
+                        with st.expander("evidence", expanded=False):
+                            st.json(rest)
+        else:
+            st.json(result)
+
+
+def render_memory_card(m: dict, pulsed_ids: set) -> None:
+    writer = m.get("__written_by", "")
+    ident = _ident(writer)
+    color = ident["color"] if ident else "#888"
+    bg = ident["bg_tint"] if ident else "rgba(125,125,125,0.05)"
+
+    meta = m.get("metadata") or {}
+    title = m.get("title") or (m.get("content") or "")[:60] or "(untitled)"
+    summary = m.get("summary") or meta.get("summary") or ""
+    tags = m.get("tags") or meta.get("tags") or []
+    mtype = m.get("memory_type") or m.get("type") or ""
+    when = format_relative(m.get("created_at", ""))
+    visibility = m.get("visibility") or "scope_team"
+    recall_count = m.get("recall_count") or 0
+    memory_id = m.get("id", "")
+
+    viz_label = {
+        "scope_agent": "🔒 private",
+        "scope_team": "",
+        "scope_org": "🌐 org",
+    }.get(visibility, "")
+    viz_html = (
+        f'<span class="mem-badge" title="visibility: {visibility}">{viz_label}</span>'
+        if viz_label
+        else ""
+    )
+
+    pii = bool(
+        meta.get("pii_detected")
+        or meta.get("pii_flagged")
+        or any("pii" in str(k).lower() for k in meta.keys())
+    )
+    pii_html = (
+        '<span class="mem-badge" style="color:#c33" title="PII detected">⚠ PII</span>'
+        if pii
+        else ""
+    )
+
+    recall_html = (
+        f'<span class="mem-recall" title="recalled {recall_count} time(s)">↻ {recall_count}</span>'
+        if recall_count > 0
+        else ""
+    )
+
+    pulse_class = " pulse" if memory_id in pulsed_ids else ""
+
+    inner: list[str] = []
+    if ident:
+        inner.append(
+            f'<div class="mem-writer" style="color:{color}">'
+            f'{ident["emoji"]} {ident["display"]}{viz_html}{pii_html}{recall_html} '
+            f'<span style="opacity:0.5;font-weight:400">· {when}</span></div>'
+        )
+    else:
+        writer_label = writer or "—"
+        inner.append(
+            f'<div class="mem-writer" style="color:#888">'
+            f'unknown ({writer_label}){viz_html}{pii_html}{recall_html} '
+            f'<span style="opacity:0.5;font-weight:400">· {when}</span></div>'
+        )
+    inner.append(f'<div class="mem-title">{title}</div>')
+    if mtype:
+        inner.append(f'<div style="font-size:0.7rem;opacity:0.6">{mtype}</div>')
+    if summary:
+        inner.append(f'<div style="opacity:0.85;margin-top:1px">{summary}</div>')
+    if tags:
+        inner.append("".join(f'<span class="mem-tag">#{t}</span>' for t in tags))
+
+    st.markdown(
+        f'<div class="mem-card{pulse_class}" style="border-left-color:{color};'
+        f'background:{bg}">{"".join(inner)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    with st.popover("⌃ details", use_container_width=False):
+        st.markdown(f"**Content**\n\n{m.get('content') or '(no content)'}")
+        if summary:
+            st.markdown(f"**Summary**\n\n{summary}")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Type", mtype or "—")
+        weight = m.get("weight")
+        d2.metric("Weight", f"{weight:.2f}" if isinstance(weight, (int, float)) else "—")
+        d3.metric("Status", m.get("status") or "—")
+        d4.metric("Recalls", recall_count)
+        st.caption(
+            f"`{memory_id}` · visibility=`{visibility}` · created {when}"
+            + (
+                f" · last recalled {format_relative(m.get('last_recalled_at', ''))}"
+                if m.get("last_recalled_at")
+                else ""
+            )
+        )
+        if tags:
+            st.markdown("**Tags:** " + " ".join(f"`#{t}`" for t in tags))
+        if meta:
+            with st.expander("Raw metadata", expanded=False):
+                st.json(meta)
+
+
 def render_memory_feed() -> None:
     header_col, button_col = st.columns([5, 1])
     with header_col:
@@ -320,15 +629,18 @@ def render_memory_feed() -> None:
         )
     with button_col:
         if st.button("🔄 Refresh", use_container_width=True, key="dash_refresh"):
-            st.session_state["memories"] = fetch_memories(
-                api_url, api_key, tenant_id, fleet_id
-            )
+            do_full_refresh()
             st.rerun()
+
+    mems_raw = st.session_state.get("memories", [])
+    mems_local = mems_raw if isinstance(mems_raw, list) else []
+    fetch_error = mems_raw.get("error") if isinstance(mems_raw, dict) else None
+    pulsed_ids = st.session_state.get("pulsed_ids") or set()
 
     if fetch_error:
         st.error(f"Could not fetch memories: {fetch_error}")
         return
-    if not mems:
+    if not mems_local:
         st.info(
             "No memories yet. Configure a native surface (see sidebar) and "
             "write one — it'll appear here on next refresh."
@@ -336,61 +648,39 @@ def render_memory_feed() -> None:
         return
 
     counts = {ident["agent_id"]: 0 for ident in AGENT_IDENTITIES}
-    for m in mems:
+    for m in mems_local:
         if m.get("__written_by") in counts:
             counts[m["__written_by"]] += 1
     summary_parts = [f"{_ident(k)['display']}: {v}" for k, v in counts.items() if v]
-    plural = "y" if len(mems) == 1 else "ies"
+    plural = "y" if len(mems_local) == 1 else "ies"
     summary_tail = ("  ·  " + "  ·  ".join(summary_parts)) if summary_parts else ""
     st.caption(
-        f"**{len(mems)} memor{plural}** across tenant "
+        f"**{len(mems_local)} memor{plural}** across tenant "
         f"`{tenant_id}` (all fleets){summary_tail}"
     )
 
-    for m in mems:
-        writer = m.get("__written_by", "")
-        ident = _ident(writer)
-        color = ident["color"] if ident else "#888"
-        bg = ident["bg_tint"] if ident else "rgba(125,125,125,0.05)"
-
-        meta = m.get("metadata") or {}
-        title = m.get("title") or (m.get("content") or "")[:60] or "(untitled)"
-        summary = m.get("summary") or meta.get("summary") or ""
-        tags = m.get("tags") or meta.get("tags") or []
-        mtype = m.get("memory_type") or m.get("type") or ""
-        when = format_relative(m.get("created_at", ""))
-
-        inner = []
-        if ident:
-            inner.append(
-                f'<div class="mem-writer" style="color:{color}">'
-                f'{ident["emoji"]} {ident["display"]} '
-                f'<span style="opacity:0.5;font-weight:400">· {when}</span></div>'
-            )
-        else:
-            inner.append(
-                f'<div class="mem-writer" style="color:#888">unknown writer · {when}</div>'
-            )
-        inner.append(f'<div class="mem-title">{title}</div>')
-        if mtype:
-            inner.append(f'<div style="font-size:0.7rem;opacity:0.6">{mtype}</div>')
-        if summary:
-            inner.append(f'<div style="opacity:0.85;margin-top:1px">{summary}</div>')
-        if tags:
-            inner.append("".join(f'<span class="mem-tag">#{t}</span>' for t in tags))
-        st.markdown(
-            f'<div class="mem-card" style="border-left-color:{color};'
-            f'background:{bg}">{"".join(inner)}</div>',
-            unsafe_allow_html=True,
-        )
+    for m in mems_local:
+        render_memory_card(m, pulsed_ids)
 
 
-left, right = st.columns([1, 2])
+# ── Layout ──────────────────────────────────────────────────────────
+@st.fragment(run_every=10 if st.session_state.get("auto_refresh") else None)
+def main_panel() -> None:
+    if st.session_state.get("auto_refresh"):
+        do_full_refresh()
 
-with left:
-    st.markdown("### Surfaces")
-    for ident in AGENT_IDENTITIES:
-        render_agent_card(ident)
+    render_stats_strip()
+    st.write("")
 
-with right:
-    render_memory_feed()
+    left, right = st.columns([1, 2])
+    with left:
+        st.markdown("### Surfaces")
+        for ident in AGENT_IDENTITIES:
+            render_agent_card(ident)
+    with right:
+        render_recall_section()
+        render_insights_section()
+        render_memory_feed()
+
+
+main_panel()
