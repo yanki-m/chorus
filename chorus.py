@@ -429,12 +429,12 @@ def render_recall_section() -> None:
             placeholder="What does memclaw know about… ?",
             label_visibility="collapsed",
         )
-        cols = st.columns([3, 1, 1])
-        if cols[1].button("Search", type="primary", use_container_width=True, key="recall_btn"):
+        cols = st.columns([1, 1])
+        if cols[0].button("Search", type="primary", use_container_width=True, key="recall_btn"):
             if query.strip():
                 results, err = fetch_recall(cfg, query.strip())
                 st.session_state["recall_result"] = (results, err, query.strip())
-        if cols[2].button("Clear", use_container_width=True, key="recall_clear"):
+        if cols[1].button("Clear", use_container_width=True, key="recall_clear"):
             st.session_state.pop("recall_result", None)
 
         result_tuple = st.session_state.get("recall_result")
