@@ -14,6 +14,7 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -111,6 +112,12 @@ st.markdown(
   .kpi .val   { font-size: 1.6rem; font-weight: 700; color: #5a3aa3;
                 line-height: 1.1; }
   .kpi .lab   { font-size: 0.72rem; color: #666; margin-top: 2px; }
+  .kpi-sub    { font-size: 0.72rem; color: #555; margin-top: 4px;
+                line-height: 1.45; }
+  a.inline-refresh { font-size: 1rem; text-decoration: none; color: #888;
+                     cursor: pointer; margin-left: 10px;
+                     transition: color 0.15s; vertical-align: middle; }
+  a.inline-refresh:hover { color: #222; }
   /* Narrow the sidebar — defaults to ~330px, drop to ~240. */
   section[data-testid="stSidebar"] { width: 240px !important;
                                      min-width: 240px !important; }
@@ -375,18 +382,38 @@ def render_stats_strip() -> None:
     total = stats.get("total")
     if total is None:
         total = len(mems_local)
-    by_agent = stats.get("by_agent") or {}
-    writers = (
-        sum(1 for v in by_agent.values() if v > 0)
-        if by_agent
-        else len({m.get("agent_id") for m in mems_local if m.get("agent_id")})
-    )
+    by_agent: dict = dict(stats.get("by_agent") or {})
+    if not by_agent and mems_local:
+        for m in mems_local:
+            aid = m.get("agent_id")
+            if aid:
+                by_agent[aid] = by_agent.get(aid, 0) + 1
+    writers = sum(1 for v in by_agent.values() if v > 0)
     last_write = format_relative(mems_local[0].get("created_at", "")) if mems_local else "never"
+
+    # Per-surface breakdown inside the memories KPI
+    breakdown_lines: list[str] = []
+    known_ids = {i["agent_id"] for i in AGENT_IDENTITIES}
+    for ident in AGENT_IDENTITIES:
+        count = by_agent.get(ident["agent_id"], 0)
+        if count > 0:
+            breakdown_lines.append(
+                f'<div class="kpi-sub">'
+                f'<span style="color:{ident["color"]}">{ident["emoji"]} {ident["display"]}</span>'
+                f' · {count}</div>'
+            )
+    other_count = sum(v for k, v in by_agent.items() if k not in known_ids)
+    if other_count > 0:
+        breakdown_lines.append(
+            f'<div class="kpi-sub" style="color:#888">other · {other_count}</div>'
+        )
+    breakdown_html = "".join(breakdown_lines)
 
     c1, c2, c3 = st.columns(3)
     c1.markdown(
         f'<div class="kpi"><div class="val">{total}</div>'
-        f'<div class="lab">memories in tenant</div></div>',
+        f'<div class="lab">memories in tenant</div>'
+        f'{breakdown_html}</div>',
         unsafe_allow_html=True,
     )
     c2.markdown(
@@ -648,6 +675,15 @@ def render_memory_feed() -> None:
 # ── Layout ──────────────────────────────────────────────────────────
 @st.fragment(run_every=30 if st.session_state.get("auto_refresh") else None)
 def main_panel() -> None:
+    # Manual refresh triggered by the inline link in the Memories header.
+    # The link's href carries a fresh ms-timestamp nonce on every render,
+    # so a click yields a URL Streamlit will treat as new; we dedup on
+    # the token so a stale URL replay doesn't re-fire the fetch.
+    token = st.query_params.get("refresh")
+    if token and token != st.session_state.get("last_refresh_token"):
+        st.session_state["last_refresh_token"] = token
+        do_full_refresh()
+
     if st.session_state.get("auto_refresh"):
         do_full_refresh()
 
@@ -662,18 +698,13 @@ def main_panel() -> None:
 
     # ── Memories (center) ──
     with memories_col:
-        title_row = st.columns([2, 5], gap="small", vertical_alignment="center")
-        with title_row[0]:
-            st.markdown('<div class="section-h">Memories</div>', unsafe_allow_html=True)
-        with title_row[1]:
-            if st.button(
-                "🔄",
-                type="tertiary",
-                key="mem_refresh",
-                help="Refresh feed + stats",
-            ):
-                do_full_refresh()
-                st.rerun()
+        nonce = int(time.time() * 1000)
+        st.markdown(
+            f'<div class="section-h">Memories'
+            f'<a class="inline-refresh" href="?refresh={nonce}" '
+            f'title="Refresh feed + stats">🔄</a></div>',
+            unsafe_allow_html=True,
+        )
         render_stats_strip()
         st.write("")
         render_memory_feed()
