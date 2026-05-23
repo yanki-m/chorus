@@ -664,37 +664,35 @@ def main_panel() -> None:
     if st.session_state.get("auto_refresh"):
         do_full_refresh()
 
-    # ── Surfaces ──
-    st.markdown('<div class="section-h">Surfaces</div>', unsafe_allow_html=True)
-    st.caption("Native LLM clients wired to write into this tenant.")
-    surface_cols = st.columns(max(1, len(AGENT_IDENTITIES)))
-    for col, ident in zip(surface_cols, AGENT_IDENTITIES):
-        with col:
+    surfaces_col, memories_col, exploration_col = st.columns([1, 2, 1.5])
+
+    # ── Surfaces (left) ──
+    with surfaces_col:
+        st.markdown('<div class="section-h">Surfaces</div>', unsafe_allow_html=True)
+        st.caption("Native LLM clients wired to this tenant.")
+        for ident in AGENT_IDENTITIES:
             render_agent_card(ident)
 
-    st.divider()
-
-    # ── Memories ──
-    header_cols = st.columns([5, 1])
-    with header_cols[0]:
-        st.markdown('<div class="section-h">Memories</div>', unsafe_allow_html=True)
-        st.caption("Every write to the tenant, attributed by writer. Auto-pulses when another surface recalls one.")
-    with header_cols[1]:
+    # ── Memories (center) ──
+    with memories_col:
+        title_row = st.columns([4, 1])
+        with title_row[0]:
+            st.markdown('<div class="section-h">Memories</div>', unsafe_allow_html=True)
+        with title_row[1]:
+            if st.button("🔄", help="Refresh feed + stats", key="mem_refresh"):
+                do_full_refresh()
+                st.rerun()
+        st.caption("Every write to the tenant, attributed by writer. Cards pulse when another surface recalls one.")
+        render_stats_strip()
         st.write("")
-        if st.button("🔄 Refresh", use_container_width=True, key="mem_refresh"):
-            do_full_refresh()
-            st.rerun()
-    render_stats_strip()
-    st.write("")
-    render_memory_feed()
+        render_memory_feed()
 
-    st.divider()
-
-    # ── Exploration ──
-    st.markdown('<div class="section-h">Exploration</div>', unsafe_allow_html=True)
-    st.caption("Query and analyze the memory store — semantic search, contradictions, patterns.")
-    render_recall_section()
-    render_insights_section()
+    # ── Exploration (right) ──
+    with exploration_col:
+        st.markdown('<div class="section-h">Exploration</div>', unsafe_allow_html=True)
+        st.caption("Query and analyze the memory store.")
+        render_recall_section()
+        render_insights_section()
 
 
 main_panel()
