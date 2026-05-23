@@ -80,15 +80,9 @@ async def list_tenant_memories(
     if is_err:
         return [], text or "unknown MCP error"
     try:
-        body = json.loads(text)
-    except json.JSONDecodeError:
-        return [], f"non-JSON response: {text[:200]}"
-    if isinstance(body, dict):
-        items = body.get("results") or body.get("items") or body.get("memories") or []
-    elif isinstance(body, list):
-        items = body
-    else:
-        items = []
+        items = json.loads(text).get("results", [])
+    except (json.JSONDecodeError, AttributeError):
+        return [], f"unexpected response shape: {text[:200]}"
     for m in items:
         m["__written_by"] = m.get("agent_id") or ""
     return items, ""

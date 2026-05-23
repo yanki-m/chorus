@@ -14,7 +14,6 @@ Run:
 from __future__ import annotations
 
 import asyncio
-import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -26,17 +25,20 @@ load_dotenv()
 import streamlit as st  # noqa: E402
 
 from memclaw_mcp import (  # noqa: E402
+    DASHBOARD_AGENT_ID,
     list_tenant_memories,
     open_mcp,
     register_dashboard_agent,
 )
 from protocol import MemclawConfig  # noqa: E402
 
+_env_defaults = MemclawConfig.from_env()
+
 
 st.set_page_config(page_title="Chorus · caura-memclaw", page_icon="🎼", layout="wide")
 
 
-# ── Agent identities (display only — Chorus no longer hosts in-process agents) ─
+# ── Agent identities (one entry per native surface Chorus knows about) ──
 AGENT_IDENTITIES: list[dict] = [
     {
         "agent_id": "claude-desktop",
@@ -59,8 +61,8 @@ AGENT_IDENTITIES: list[dict] = [
 ]
 
 
-def _ident(agent_id: str) -> dict:
-    return next(i for i in AGENT_IDENTITIES if i["agent_id"] == agent_id)
+def _ident(agent_id: str) -> dict | None:
+    return next((i for i in AGENT_IDENTITIES if i["agent_id"] == agent_id), None)
 
 
 # ── Styling ──────────────────────────────────────────────────────────
@@ -97,7 +99,7 @@ st.markdown(
 
 # ── Helpers ─────────────────────────────────────────────────────────
 def elevate_dashboard_trust(
-    api_url: str, api_key: str, tenant_id: str, agent_id: str = "chorus-dashboard"
+    api_url: str, api_key: str, tenant_id: str, agent_id: str = DASHBOARD_AGENT_ID
 ) -> tuple[bool, str]:
     """PATCH the dashboard agent's trust_level to 2 so scope='all' reads
     succeed. Idempotent — setting trust=2 when already 2 is a no-op.
@@ -200,9 +202,8 @@ def format_relative(iso_str: str) -> str:
     if not iso_str:
         return "never"
     try:
-        ts = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-        delta = datetime.now(timezone.utc) - ts
-        secs = int(delta.total_seconds())
+        # Python 3.11+ fromisoformat handles trailing Z natively.
+        secs = int((datetime.now(timezone.utc) - datetime.fromisoformat(iso_str)).total_seconds())
     except Exception:
         return "unknown"
     if secs < 0:
@@ -219,23 +220,10 @@ def format_relative(iso_str: str) -> str:
 # ── Sidebar ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### Chorus config")
-    api_url = st.text_input(
-        "memclaw URL",
-        value=os.environ.get("MEMCLAW_API_URL", "https://memclaw.net"),
-    )
-    api_key = st.text_input(
-        "API key",
-        value=os.environ.get("MEMCLAW_API_KEY", ""),
-        type="password",
-    )
-    tenant_id = st.text_input(
-        "Tenant ID",
-        value=os.environ.get("MEMCLAW_TENANT_ID", ""),
-    )
-    fleet_id = st.text_input(
-        "Fleet ID",
-        value=os.environ.get("MEMCLAW_FLEET_ID", "chorus"),
-    )
+    api_url = st.text_input("memclaw URL", value=_env_defaults.api_url)
+    api_key = st.text_input("API key", value=_env_defaults.api_key, type="password")
+    tenant_id = st.text_input("Tenant ID", value=_env_defaults.tenant_id)
+    fleet_id = st.text_input("Fleet ID", value=_env_defaults.fleet_id)
 
     st.divider()
     # Two-click confirm so a stray click can't nuke the tenant.
@@ -361,9 +349,7 @@ def render_memory_feed() -> None:
 
     for m in mems:
         writer = m.get("__written_by", "")
-        ident = _ident(writer) if any(
-            x["agent_id"] == writer for x in AGENT_IDENTITIES
-        ) else None
+        ident = _ident(writer)
         color = ident["color"] if ident else "#888"
         bg = ident["bg_tint"] if ident else "rgba(125,125,125,0.05)"
 
@@ -402,7 +388,7 @@ def render_memory_feed() -> None:
 left, right = st.columns([1, 2])
 
 with left:
-    st.markdown("### Fleet")
+    st.markdown("### Surfaces")
     for ident in AGENT_IDENTITIES:
         render_agent_card(ident)
 
