@@ -14,7 +14,6 @@ Run:
 from __future__ import annotations
 
 import asyncio
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -115,10 +114,21 @@ st.markdown(
   .kpi .lab   { font-size: 0.72rem; color: #666; margin-top: 2px; }
   .kpi-sub    { font-size: 0.72rem; color: #555; margin-top: 4px;
                 line-height: 1.45; }
-  a.inline-refresh { font-size: 1rem; text-decoration: none; color: #888;
-                     cursor: pointer; margin-left: 10px;
-                     transition: color 0.15s; vertical-align: middle; }
-  a.inline-refresh:hover { color: #222; }
+  /* Force tertiary buttons to look like a plain inline icon link. */
+  [data-testid="stButton"] button[kind="tertiary"],
+  button[kind="tertiary"] {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 6px !important;
+    color: #888 !important;
+    min-height: 0 !important;
+    transition: color 0.15s !important;
+  }
+  [data-testid="stButton"] button[kind="tertiary"]:hover,
+  button[kind="tertiary"]:hover { color: #222 !important; }
+  [data-testid="stButton"] button[kind="tertiary"]:focus,
+  button[kind="tertiary"]:focus { box-shadow: none !important; outline: none !important; }
   /* Narrow the sidebar — defaults to ~330px, drop to ~240. */
   section[data-testid="stSidebar"] { width: 240px !important;
                                      min-width: 240px !important; }
@@ -623,15 +633,6 @@ def render_memory_feed() -> None:
 # ── Layout ──────────────────────────────────────────────────────────
 @st.fragment(run_every=30 if st.session_state.get("auto_refresh") else None)
 def main_panel() -> None:
-    # Manual refresh triggered by the inline link in the Memories header.
-    # The link's href carries a fresh ms-timestamp nonce on every render,
-    # so a click yields a URL Streamlit will treat as new; we dedup on
-    # the token so a stale URL replay doesn't re-fire the fetch.
-    token = st.query_params.get("refresh")
-    if token and token != st.session_state.get("last_refresh_token"):
-        st.session_state["last_refresh_token"] = token
-        do_full_refresh()
-
     if st.session_state.get("auto_refresh"):
         do_full_refresh()
 
@@ -645,13 +646,18 @@ def main_panel() -> None:
 
     # ── Memories (center) ──
     with memories_col:
-        nonce = int(time.time() * 1000)
-        st.markdown(
-            f'<div class="section-h">Memories'
-            f'<a class="inline-refresh" href="?refresh={nonce}" '
-            f'title="Refresh feed + stats">🔄</a></div>',
-            unsafe_allow_html=True,
-        )
+        title_row = st.columns([2, 5], gap="small", vertical_alignment="center")
+        with title_row[0]:
+            st.markdown('<div class="section-h">Memories</div>', unsafe_allow_html=True)
+        with title_row[1]:
+            if st.button(
+                "🔄",
+                type="tertiary",
+                key="mem_refresh",
+                help="Refresh feed + stats (fragment-scoped, no page reload)",
+            ):
+                do_full_refresh()
+                st.rerun(scope="fragment")
         render_stats_strip()
         st.write("")
         render_memory_feed()
