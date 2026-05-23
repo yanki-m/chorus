@@ -692,7 +692,6 @@ def main_panel() -> None:
     # ── Surfaces (left) ──
     with surfaces_col:
         st.markdown('<div class="section-h">Surfaces</div>', unsafe_allow_html=True)
-        st.caption("Native LLM clients wired to this tenant.")
         for ident in AGENT_IDENTITIES:
             render_agent_card(ident)
 
