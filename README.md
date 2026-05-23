@@ -11,21 +11,21 @@ Chorus does not run any LLM itself. It's read-only — the agents live in
 their native runtimes; memclaw is the shared substrate.
 
 ```
-   ┌──────────────────┐
-   │  Claude Desktop  │ ─┐
-   │ as "claude-desktop"│ │
-   └──────────────────┘ │
-                        ▼
-                   ┌─────────────────────┐         ┌──────────────────┐
-                   │   caura-memclaw     │  poll   │   Chorus (this   │
-                   │    (shared tenant)  │ ◀────── │   Streamlit UI)  │
-                   └─────────────────────┘         └──────────────────┘
-                        ▲
-   ┌──────────────────┐ │
-   │     ChatGPT      │ │
-   │   as "chatgpt"   │ ─┘
-   │  (Custom GPT)    │
-   └──────────────────┘
+   ┌────────────────────────┐
+   │     Claude Desktop     │ ──┐
+   │ agent_id="claude-desktop" │
+   └────────────────────────┘   │
+                                ▼
+                        ┌──────────────────┐         ┌─────────────────┐
+                        │  caura-memclaw   │  poll   │  Chorus (this   │
+                        │  (shared tenant) │ ◀────── │  Streamlit UI)  │
+                        └──────────────────┘         └─────────────────┘
+                                ▲
+   ┌────────────────────────┐   │
+   │        ChatGPT         │ ──┘
+   │   agent_id="chatgpt"   │
+   │     (Custom GPT)       │
+   └────────────────────────┘
 ```
 
 ## Layout
@@ -39,8 +39,11 @@ their native runtimes; memclaw is the shared substrate.
 | `claude-desktop-setup.md` | Wire Claude Desktop to write as `agent_id="claude-desktop"` |
 | `openai-setup.md` | Wire a ChatGPT Custom GPT to write as `agent_id="chatgpt"` |
 | `gemini-setup.md` | Dormant — kept for when Gemini comes back into the lineup |
+| `INFOGRAPHIC.md` | Design brief for the blackboard / dashboard infographic |
+| `blackboard.svg` | Working infographic draft — **stale**, redraw against `INFOGRAPHIC.md` |
 | `requirements.txt` | Three deps: `mcp`, `python-dotenv`, `streamlit` |
 | `.env.example` | The four `MEMCLAW_*` vars the dashboard reads |
+| `LICENSE` | Apache 2.0 |
 
 ## Setup
 

@@ -1,9 +1,16 @@
-"""Shared MCP plumbing for talking to caura-memclaw.
+"""MCP plumbing for the Chorus dashboard.
 
-Every adapter ends up doing the same low-level dance: open a streamable-HTTP
-MCP session against `<api>/mcp/`, list tools, call `memclaw_write` /
-`memclaw_recall`, stringify the result. This module centralises that so
-each adapter file stays focused on its runtime's own quirks.
+Opens a streamable-HTTP MCP session against `<api>/mcp/` and exposes
+helpers the dashboard uses:
+
+- `open_mcp(cfg)` — async context manager that yields a ready session.
+- `call_memclaw_tool(...)` — wraps `session.call_tool` and flattens the
+  result into `(text, is_error)`.
+- `list_tenant_memories(...)` — `memclaw_list` with `scope='all'` so the
+  dashboard sees every writer's memories under the tenant.
+- `register_dashboard_agent(...)` — one bootstrap write so the
+  `chorus-dashboard` agent row exists; trust elevation is a separate
+  REST PATCH handled in `chorus.py`.
 """
 
 from __future__ import annotations

@@ -96,46 +96,6 @@ st.markdown(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
-def fetch_memories(
-    api_url: str, api_key: str, tenant_id: str, fleet_id: str
-) -> list[dict] | dict:
-    cfg = MemclawConfig(
-        api_url=api_url, api_key=api_key, tenant_id=tenant_id, fleet_id=fleet_id
-    )
-
-    async def gather() -> tuple[list[dict], str]:
-        async with open_mcp(cfg) as session:
-            rows, err = await list_tenant_memories(session)
-            # First-run bootstrap: if the dashboard agent isn't registered
-            # yet, write a marker memory so the row exists, then retry.
-            if err and "is not registered" in err:
-                await register_dashboard_agent(session, fleet_id=fleet_id)
-                rows, err = await list_tenant_memories(session)
-            return rows, err
-
-    try:
-        rows, err = asyncio.run(gather())
-    except Exception as e:
-        return {"error": str(e)}
-
-    # Auto-elevate trust on the dashboard agent if the list call was
-    # rejected at the trust gate. caura-memclaw's scope='all' read needs
-    # trust ≥ 2; newly registered agents default to 1. The PATCH is
-    # idempotent — second run with trust already 2 still returns 200.
-    if err and "trust_level=" in err and "required 2" in err:
-        ok, msg = elevate_dashboard_trust(api_url, api_key, tenant_id)
-        if not ok:
-            return {"error": f"auto trust-elevation failed: {msg}"}
-        try:
-            rows, err = asyncio.run(gather())
-        except Exception as e:
-            return {"error": str(e)}
-
-    if err:
-        return {"error": err}
-    return rows
-
-
 def elevate_dashboard_trust(
     api_url: str, api_key: str, tenant_id: str, agent_id: str = "chorus-dashboard"
 ) -> tuple[bool, str]:
@@ -163,6 +123,50 @@ def elevate_dashboard_trust(
         return False, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}"
     except Exception as e:
         return False, repr(e)
+
+
+def fetch_memories(
+    api_url: str, api_key: str, tenant_id: str, fleet_id: str
+) -> list[dict] | dict:
+    """Fetch the live memory feed. Self-heals two first-run conditions:
+    the dashboard agent not being registered yet (one bootstrap write),
+    and its trust_level being too low for scope='all' (one PATCH). On
+    other errors, returns ``{"error": "..."}`` so the caller can render
+    a banner."""
+    cfg = MemclawConfig(
+        api_url=api_url, api_key=api_key, tenant_id=tenant_id, fleet_id=fleet_id
+    )
+
+    async def gather() -> tuple[list[dict], str]:
+        async with open_mcp(cfg) as session:
+            rows, err = await list_tenant_memories(session)
+            # First-run bootstrap: if the dashboard agent isn't registered
+            # yet, write a marker memory so the row exists, then retry.
+            if err and "is not registered" in err:
+                await register_dashboard_agent(session, fleet_id=fleet_id)
+                rows, err = await list_tenant_memories(session)
+            return rows, err
+
+    try:
+        rows, err = asyncio.run(gather())
+    except Exception as e:
+        return {"error": str(e)}
+
+    # Auto-elevate trust on the dashboard agent if the list call was
+    # rejected at the trust gate. scope='all' requires trust ≥ 2;
+    # newly registered agents default to 1. The PATCH is idempotent.
+    if err and "trust_level=" in err and "required 2" in err:
+        ok, msg = elevate_dashboard_trust(api_url, api_key, tenant_id)
+        if not ok:
+            return {"error": f"auto trust-elevation failed: {msg}"}
+        try:
+            rows, err = asyncio.run(gather())
+        except Exception as e:
+            return {"error": str(e)}
+
+    if err:
+        return {"error": err}
+    return rows
 
 
 def erase_all_memories(api_url: str, api_key: str, tenant_id: str) -> tuple[bool, str]:

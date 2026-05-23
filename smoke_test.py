@@ -1,11 +1,14 @@
-"""Direct MCP round-trip — no LLM, no token spend.
+"""Direct MCP round-trip — no LLM, no token spend, no Streamlit.
 
-Verifies that the caura-memclaw fleet is wired up correctly:
-  1. Agent A writes a uniquely-tagged canary memory.
-  2. Agent B (different agent_id, same fleet_id) recalls it by tag.
+Verifies that the caura-memclaw tenant is wired up correctly:
+  1. Agent A writes a uniquely-tagged canary memory under ``fleet_id``.
+  2. Agent B (different agent_id, same fleet_id) recalls it by tag —
+     proves cross-agent visibility in the shared fleet.
 
-Run this first whenever the demo "doesn't work" — it isolates whether
-the problem is memclaw connectivity or the LLM layer.
+Run this whenever the dashboard "doesn't work" — it isolates whether
+the problem is memclaw connectivity / credentials, or something
+downstream (Streamlit, the surface integrations, the dashboard agent's
+trust level, etc.).
 
 Usage:
     python smoke_test.py
@@ -46,6 +49,7 @@ async def _round_trip(cfg: MemclawConfig) -> int:
     )
 
     print(f"→ MCP endpoint: {cfg.mcp_url}")
+    print(f"→ Tenant:       {cfg.tenant_id}")
     print(f"→ Fleet:        {cfg.fleet_id}")
     print(f"→ Canary:       {canary}\n")
 
