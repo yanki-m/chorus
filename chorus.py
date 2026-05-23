@@ -388,7 +388,6 @@ def render_stats_strip() -> None:
             aid = m.get("agent_id")
             if aid:
                 by_agent[aid] = by_agent.get(aid, 0) + 1
-    writers = sum(1 for v in by_agent.values() if v > 0)
     last_write = format_relative(mems_local[0].get("created_at", "")) if mems_local else "never"
 
     # Per-surface breakdown inside the memories KPI
@@ -409,19 +408,14 @@ def render_stats_strip() -> None:
         )
     breakdown_html = "".join(breakdown_lines)
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns([2, 1])
     c1.markdown(
         f'<div class="kpi"><div class="val">{total}</div>'
-        f'<div class="lab">memories in tenant</div>'
+        f'<div class="lab">memories</div>'
         f'{breakdown_html}</div>',
         unsafe_allow_html=True,
     )
     c2.markdown(
-        f'<div class="kpi"><div class="val">{writers}</div>'
-        f'<div class="lab">distinct writers</div></div>',
-        unsafe_allow_html=True,
-    )
-    c3.markdown(
         f'<div class="kpi"><div class="val">{last_write}</div>'
         f'<div class="lab">last write</div></div>',
         unsafe_allow_html=True,
