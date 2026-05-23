@@ -111,6 +111,10 @@ st.markdown(
   .kpi .val   { font-size: 1.6rem; font-weight: 700; color: #5a3aa3;
                 line-height: 1.1; }
   .kpi .lab   { font-size: 0.72rem; color: #666; margin-top: 2px; }
+  /* Narrow the sidebar — defaults to ~330px, drop to ~240. */
+  section[data-testid="stSidebar"] { width: 240px !important;
+                                     min-width: 240px !important; }
+  .section-h  { font-size: 1.4rem; font-weight: 700; margin: 8px 0 4px 0; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -621,17 +625,8 @@ def render_memory_card(m: dict, pulsed_ids: set) -> None:
 
 
 def render_memory_feed() -> None:
-    header_col, button_col = st.columns([5, 1])
-    with header_col:
-        st.markdown(
-            '<div class="feed-header">🧠 caura-memclaw — live memory feed</div>',
-            unsafe_allow_html=True,
-        )
-    with button_col:
-        if st.button("🔄 Refresh", use_container_width=True, key="dash_refresh"):
-            do_full_refresh()
-            st.rerun()
-
+    """Just the feed body — caption + cards. The section header and
+    refresh button live in main_panel so the layout owns its structure."""
     mems_raw = st.session_state.get("memories", [])
     mems_local = mems_raw if isinstance(mems_raw, list) else []
     fetch_error = mems_raw.get("error") if isinstance(mems_raw, dict) else None
@@ -669,18 +664,37 @@ def main_panel() -> None:
     if st.session_state.get("auto_refresh"):
         do_full_refresh()
 
+    # ── Surfaces ──
+    st.markdown('<div class="section-h">Surfaces</div>', unsafe_allow_html=True)
+    st.caption("Native LLM clients wired to write into this tenant.")
+    surface_cols = st.columns(max(1, len(AGENT_IDENTITIES)))
+    for col, ident in zip(surface_cols, AGENT_IDENTITIES):
+        with col:
+            render_agent_card(ident)
+
+    st.divider()
+
+    # ── Memories ──
+    header_cols = st.columns([5, 1])
+    with header_cols[0]:
+        st.markdown('<div class="section-h">Memories</div>', unsafe_allow_html=True)
+        st.caption("Every write to the tenant, attributed by writer. Auto-pulses when another surface recalls one.")
+    with header_cols[1]:
+        st.write("")
+        if st.button("🔄 Refresh", use_container_width=True, key="mem_refresh"):
+            do_full_refresh()
+            st.rerun()
     render_stats_strip()
     st.write("")
+    render_memory_feed()
 
-    left, right = st.columns([1, 2])
-    with left:
-        st.markdown("### Surfaces")
-        for ident in AGENT_IDENTITIES:
-            render_agent_card(ident)
-    with right:
-        render_recall_section()
-        render_insights_section()
-        render_memory_feed()
+    st.divider()
+
+    # ── Exploration ──
+    st.markdown('<div class="section-h">Exploration</div>', unsafe_allow_html=True)
+    st.caption("Query and analyze the memory store — semantic search, contradictions, patterns.")
+    render_recall_section()
+    render_insights_section()
 
 
 main_panel()
