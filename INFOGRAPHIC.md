@@ -3,10 +3,9 @@
 A one-frame visual for explaining what **Chorus** (and, by extension,
 caura-memclaw) does.
 
-A working draft lives at [`blackboard.svg`](blackboard.svg). The SVG is
-**stale** — it shows the older "three muses inside Chorus" composition.
-This brief is the current spec; redraw the SVG against this before
-publishing anywhere.
+The current rendering lives at [`blackboard.svg`](blackboard.svg) and
+follows this brief. If you edit one, update the other so they stay in
+sync.
 
 ## Purpose
 

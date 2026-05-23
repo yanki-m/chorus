@@ -40,7 +40,7 @@ their native runtimes; memclaw is the shared substrate.
 | `openai-setup.md` | Wire a ChatGPT Custom GPT to write as `agent_id="chatgpt"` |
 | `gemini-setup.md` | Dormant — kept for when Gemini comes back into the lineup |
 | `INFOGRAPHIC.md` | Design brief for the blackboard / dashboard infographic |
-| `blackboard.svg` | Working infographic draft — **stale**, redraw against `INFOGRAPHIC.md` |
+| `blackboard.svg` | Rendered infographic — matches `INFOGRAPHIC.md` |
 | `requirements.txt` | Three deps: `mcp`, `python-dotenv`, `streamlit` |
 | `.env.example` | The four `MEMCLAW_*` vars the dashboard reads |
 | `LICENSE` | Apache 2.0 |
