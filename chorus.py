@@ -297,7 +297,14 @@ with st.sidebar:
             )
             st.session_state["confirm_erase"] = False
             if ok:
+                # Clear every piece of cached state derived from the
+                # tenant's writes — otherwise the KPI card keeps the
+                # pre-erase total and pulse tracking diffs against gone
+                # memories on the next fetch.
                 st.session_state["memories"] = ([], "")
+                st.session_state["stats"] = {}
+                st.session_state["prev_recalls"] = {}
+                st.session_state["pulsed_ids"] = set()
                 st.toast("Memories erased.")
                 st.rerun()
             else:
