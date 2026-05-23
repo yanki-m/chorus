@@ -130,28 +130,20 @@ st.markdown(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
-def elevate_dashboard_trust(
-    api_url: str, api_key: str, tenant_id: str, agent_id: str = DASHBOARD_AGENT_ID
+def _memclaw_http(
+    cfg: MemclawConfig, method: str, path: str, body: bytes = b"{}", timeout: int = 15
 ) -> tuple[bool, str]:
-    """PATCH the dashboard agent's trust_level to 2 so scope='all' reads
-    succeed. Idempotent — setting trust=2 when already 2 is a no-op.
-    Returns (ok, message). Requires the key's tenant to match ``tenant_id``."""
-    url = (
-        f"{api_url.rstrip('/')}/api/v1/agents/{agent_id}/trust"
-        f"?tenant_id={tenant_id}"
-    )
+    """Send a single REST call to memclaw using the tenant key. Returns
+    ``(ok, message)`` where ``message`` is the HTTP status on success or
+    a short status+body excerpt on failure."""
     req = urllib.request.Request(
-        url,
-        method="PATCH",
-        headers={
-            "X-API-Key": api_key,
-            "X-Tenant-ID": tenant_id,
-            "Content-Type": "application/json",
-        },
-        data=b'{"trust_level": 2}',
+        f"{cfg.api_url.rstrip('/')}{path}",
+        method=method,
+        headers={**cfg.headers, "Content-Type": "application/json"},
+        data=body,
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return True, f"HTTP {resp.status}"
     except urllib.error.HTTPError as e:
         return False, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}"
@@ -159,75 +151,64 @@ def elevate_dashboard_trust(
         return False, repr(e)
 
 
-def fetch_memories(
-    api_url: str, api_key: str, tenant_id: str, fleet_id: str
-) -> list[dict] | dict:
-    """Fetch the live memory feed. Self-heals two first-run conditions:
-    the dashboard agent not being registered yet (one bootstrap write),
-    and its trust_level being too low for scope='all' (one PATCH). On
-    other errors, returns ``{"error": "..."}`` so the caller can render
-    a banner."""
-    cfg = MemclawConfig(
-        api_url=api_url, api_key=api_key, tenant_id=tenant_id, fleet_id=fleet_id
+def elevate_dashboard_trust(
+    cfg: MemclawConfig, agent_id: str = DASHBOARD_AGENT_ID
+) -> tuple[bool, str]:
+    """PATCH the dashboard agent's trust_level to 2 so scope='all' reads
+    succeed. Idempotent — setting trust=2 when already 2 is a no-op.
+    Requires the key's tenant to match ``cfg.tenant_id``."""
+    return _memclaw_http(
+        cfg,
+        "PATCH",
+        f"/api/v1/agents/{agent_id}/trust?tenant_id={cfg.tenant_id}",
+        body=b'{"trust_level": 2}',
     )
 
+
+def erase_all_memories(cfg: MemclawConfig) -> tuple[bool, str]:
+    """Soft-delete every memory in the tenant via DELETE /api/v1/memories.
+    Server-side bulk delete; preserves rows with ``deleted_at`` set."""
+    return _memclaw_http(
+        cfg,
+        "DELETE",
+        f"/api/v1/memories?tenant_id={cfg.tenant_id}",
+        timeout=30,
+    )
+
+
+def fetch_memories(cfg: MemclawConfig) -> tuple[list[dict], str]:
+    """Fetch the live memory feed. Self-heals two first-run conditions:
+    the dashboard agent not being registered yet (one bootstrap write),
+    and its trust_level being too low for scope='all' (one PATCH).
+    Returns ``(rows, error_text)``; ``error_text`` is empty on success."""
     async def gather() -> tuple[list[dict], str]:
         async with open_mcp(cfg) as session:
             rows, err = await list_tenant_memories(session)
             # First-run bootstrap: if the dashboard agent isn't registered
             # yet, write a marker memory so the row exists, then retry.
             if err and "is not registered" in err:
-                await register_dashboard_agent(session, fleet_id=fleet_id)
+                await register_dashboard_agent(session, fleet_id=cfg.fleet_id)
                 rows, err = await list_tenant_memories(session)
             return rows, err
 
     try:
         rows, err = asyncio.run(gather())
     except Exception as e:
-        return {"error": str(e)}
+        return [], str(e)
 
     # Auto-elevate trust on the dashboard agent if the list call was
     # rejected at the trust gate. scope='all' requires trust ≥ 2;
     # newly registered agents default to 1. The PATCH is idempotent.
     if err and "trust_level=" in err and "required 2" in err:
-        ok, msg = elevate_dashboard_trust(api_url, api_key, tenant_id)
+        ok, msg = elevate_dashboard_trust(cfg)
         if not ok:
-            return {"error": f"auto trust-elevation failed: {msg}"}
+            return [], f"auto trust-elevation failed: {msg}"
         try:
             rows, err = asyncio.run(gather())
         except Exception as e:
-            return {"error": str(e)}
+            return [], str(e)
 
-    if err:
-        return {"error": err}
-    return rows
-
-
-def erase_all_memories(api_url: str, api_key: str, tenant_id: str) -> tuple[bool, str]:
-    """Soft-delete every memory in the tenant via DELETE /api/v1/memories.
-
-    Server-side bulk delete — one round-trip, no need to enumerate IDs
-    first. Returns (ok, message). Soft-delete preserves the rows with
-    deleted_at set; full purge would require a separate hard-delete
-    path."""
-    url = f"{api_url.rstrip('/')}/api/v1/memories?tenant_id={tenant_id}"
-    req = urllib.request.Request(
-        url,
-        method="DELETE",
-        headers={
-            "X-API-Key": api_key,
-            "X-Tenant-ID": tenant_id,
-            "Content-Type": "application/json",
-        },
-        data=b"{}",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return True, f"HTTP {resp.status}"
-    except urllib.error.HTTPError as e:
-        return False, f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}"
-    except Exception as e:
-        return False, repr(e)
+    return rows, err
 
 
 def format_relative(iso_str: str) -> str:
@@ -249,31 +230,29 @@ def format_relative(iso_str: str) -> str:
     return f"{secs // 86400}d ago"
 
 
-def _run_mcp(cfg: MemclawConfig, coro_factory):
-    """Open one MCP session, run the supplied coroutine, return its result
-    or wrap exceptions into the helper's ``(value, error_str)`` shape."""
+def _run_mcp(cfg: MemclawConfig, coro_factory, default):
+    """Open one MCP session, run the supplied coroutine, return its
+    ``(value, error)`` result. On exception returns ``(default, str)`` so
+    callers always get the shape they expect."""
     async def gather():
         async with open_mcp(cfg) as session:
             return await coro_factory(session)
     try:
         return asyncio.run(gather())
     except Exception as e:
-        return None, str(e)
+        return default, str(e)
 
 
 def fetch_recall(cfg: MemclawConfig, query: str, top_k: int = 10) -> tuple[list[dict], str]:
-    result = _run_mcp(cfg, lambda s: semantic_recall(s, query=query, top_k=top_k))
-    return result if result[0] is not None else ([], result[1])
+    return _run_mcp(cfg, lambda s: semantic_recall(s, query=query, top_k=top_k), [])
 
 
 def fetch_insights_sync(cfg: MemclawConfig, focus: str) -> tuple[dict, str]:
-    result = _run_mcp(cfg, lambda s: fetch_insights(s, focus=focus, scope="all"))
-    return result if result[0] is not None else ({}, result[1])
+    return _run_mcp(cfg, lambda s: fetch_insights(s, focus=focus, scope="all"), {})
 
 
 def fetch_stats_sync(cfg: MemclawConfig) -> tuple[dict, str]:
-    result = _run_mcp(cfg, lambda s: fetch_tenant_stats(s, scope="all"))
-    return result if result[0] is not None else ({}, result[1])
+    return _run_mcp(cfg, lambda s: fetch_tenant_stats(s, scope="all"), {})
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────
@@ -300,10 +279,15 @@ with st.sidebar:
         )
         c_yes, c_no = st.columns(2)
         if c_yes.button("🔥 Yes, erase", use_container_width=True, type="primary"):
-            ok, msg = erase_all_memories(api_url, api_key, tenant_id)
+            ok, msg = erase_all_memories(
+                MemclawConfig(
+                    api_url=api_url, api_key=api_key,
+                    tenant_id=tenant_id, fleet_id=fleet_id,
+                )
+            )
             st.session_state["confirm_erase"] = False
             if ok:
-                st.session_state["memories"] = []
+                st.session_state["memories"] = ([], "")
                 st.toast("Memories erased.")
                 st.rerun()
             else:
@@ -353,11 +337,11 @@ cfg = MemclawConfig(
 def do_full_refresh() -> None:
     """Re-fetch memories + stats; diff recall_count against the previous
     fetch so the feed can pulse cards whose recall_count just increased."""
-    new_memories = fetch_memories(api_url, api_key, tenant_id, fleet_id)
-    if isinstance(new_memories, list):
+    rows, err = fetch_memories(cfg)
+    if not err:
         prev_recalls = st.session_state.get("prev_recalls", {})
         new_recalls = {
-            m.get("id"): m.get("recall_count", 0) for m in new_memories if m.get("id")
+            m.get("id"): m.get("recall_count", 0) for m in rows if m.get("id")
         }
         st.session_state["pulsed_ids"] = {
             mid
@@ -365,9 +349,15 @@ def do_full_refresh() -> None:
             if mid in prev_recalls and prev_recalls[mid] != rc
         }
         st.session_state["prev_recalls"] = new_recalls
-    st.session_state["memories"] = new_memories
+    st.session_state["memories"] = (rows, err)
     stats, _ = fetch_stats_sync(cfg)
     st.session_state["stats"] = stats
+
+
+def _current_memories() -> tuple[list[dict], str]:
+    """Return the cached ``(rows, error)`` from session_state, with empty
+    defaults if nothing's been fetched yet."""
+    return st.session_state.get("memories", ([], ""))
 
 
 if "memories" not in st.session_state:
@@ -377,13 +367,12 @@ if "memories" not in st.session_state:
 # ── Render helpers ──────────────────────────────────────────────────
 def render_stats_strip() -> None:
     stats = st.session_state.get("stats") or {}
-    mems_raw = st.session_state.get("memories", [])
-    mems_local = mems_raw if isinstance(mems_raw, list) else []
+    mems, _ = _current_memories()
 
     total = stats.get("total")
     if total is None:
-        total = len(mems_local)
-    last_write = format_relative(mems_local[0].get("created_at", "")) if mems_local else "never"
+        total = len(mems)
+    last_write = format_relative(mems[0].get("created_at", "")) if mems else "never"
 
     st.markdown(
         f'<div class="kpi"><div class="val">{total} memories</div>'
@@ -393,10 +382,8 @@ def render_stats_strip() -> None:
 
 
 def render_agent_card(ident: dict) -> None:
-    mems_local = st.session_state.get("memories") or []
-    if not isinstance(mems_local, list):
-        mems_local = []
-    writer_mems = [m for m in mems_local if m.get("__written_by") == ident["agent_id"]]
+    mems, _ = _current_memories()
+    writer_mems = [m for m in mems if m.get("__written_by") == ident["agent_id"]]
     count = len(writer_mems)
     last_seen = format_relative(writer_mems[0].get("created_at", "")) if writer_mems else "never"
 
@@ -563,21 +550,19 @@ def render_memory_card(m: dict, pulsed_ids: set) -> None:
 
     pulse_class = " pulse" if memory_id in pulsed_ids else ""
 
-    inner: list[str] = []
     if ident:
-        inner.append(
-            f'<div class="mem-writer" style="color:{color}">'
-            f'{ident["emoji"]} {ident["display"]}{viz_html}{pii_html}{recall_html} '
-            f'<span style="opacity:0.5;font-weight:400">· {when}</span></div>'
-        )
+        writer_html = f'{ident["emoji"]} {ident["display"]}'
+        writer_color = color
     else:
-        writer_label = writer or "—"
-        inner.append(
-            f'<div class="mem-writer" style="color:#888">'
-            f'unknown ({writer_label}){viz_html}{pii_html}{recall_html} '
-            f'<span style="opacity:0.5;font-weight:400">· {when}</span></div>'
-        )
-    inner.append(f'<div class="mem-title">{title}</div>')
+        writer_html = f'unknown ({writer or "—"})'
+        writer_color = "#888"
+
+    inner: list[str] = [
+        f'<div class="mem-writer" style="color:{writer_color}">'
+        f'{writer_html}{viz_html}{pii_html}{recall_html} '
+        f'<span style="opacity:0.5;font-weight:400">· {when}</span></div>',
+        f'<div class="mem-title">{title}</div>',
+    ]
     if mtype:
         inner.append(f'<div style="font-size:0.7rem;opacity:0.6">{mtype}</div>')
     if summary:
@@ -616,24 +601,22 @@ def render_memory_card(m: dict, pulsed_ids: set) -> None:
 
 
 def render_memory_feed() -> None:
-    """Just the feed body — caption + cards. The section header and
+    """Just the feed body — error banner or cards. The section header and
     refresh button live in main_panel so the layout owns its structure."""
-    mems_raw = st.session_state.get("memories", [])
-    mems_local = mems_raw if isinstance(mems_raw, list) else []
-    fetch_error = mems_raw.get("error") if isinstance(mems_raw, dict) else None
+    mems, fetch_error = _current_memories()
     pulsed_ids = st.session_state.get("pulsed_ids") or set()
 
     if fetch_error:
         st.error(f"Could not fetch memories: {fetch_error}")
         return
-    if not mems_local:
+    if not mems:
         st.info(
             "No memories yet. Configure a native surface (see sidebar) and "
             "write one — it'll appear here on next refresh."
         )
         return
 
-    for m in mems_local:
+    for m in mems:
         render_memory_card(m, pulsed_ids)
 
 

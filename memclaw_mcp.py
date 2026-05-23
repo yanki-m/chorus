@@ -49,6 +49,22 @@ async def call_memclaw_tool(
     return stringify(result)
 
 
+def _parse_list(text: str) -> tuple[list[dict], str]:
+    """Pull ``results`` (a list) out of a memclaw JSON response."""
+    try:
+        return json.loads(text).get("results", []), ""
+    except (json.JSONDecodeError, AttributeError):
+        return [], f"unexpected response shape: {text[:200]}"
+
+
+def _parse_dict(text: str) -> tuple[dict, str]:
+    """Parse a memclaw JSON response into a dict."""
+    try:
+        return json.loads(text), ""
+    except json.JSONDecodeError:
+        return {}, f"unexpected response shape: {text[:200]}"
+
+
 DASHBOARD_AGENT_ID = "chorus-dashboard"
 
 
@@ -79,10 +95,9 @@ async def list_tenant_memories(
     )
     if is_err:
         return [], text or "unknown MCP error"
-    try:
-        items = json.loads(text).get("results", [])
-    except (json.JSONDecodeError, AttributeError):
-        return [], f"unexpected response shape: {text[:200]}"
+    items, err = _parse_list(text)
+    if err:
+        return [], err
     for m in items:
         m["__written_by"] = m.get("agent_id") or ""
     return items, ""
@@ -126,10 +141,9 @@ async def semantic_recall(
     )
     if is_err:
         return [], text or "unknown MCP error"
-    try:
-        items = json.loads(text).get("results", [])
-    except (json.JSONDecodeError, AttributeError):
-        return [], f"unexpected response shape: {text[:200]}"
+    items, err = _parse_list(text)
+    if err:
+        return [], err
     for m in items:
         m["__written_by"] = m.get("agent_id") or ""
     return items, ""
@@ -152,10 +166,7 @@ async def fetch_insights(
     text, is_err = await call_memclaw_tool(session, "memclaw_insights", args)
     if is_err:
         return {}, text or "unknown MCP error"
-    try:
-        return json.loads(text), ""
-    except json.JSONDecodeError:
-        return {}, f"unexpected response shape: {text[:200]}"
+    return _parse_dict(text)
 
 
 async def fetch_tenant_stats(
@@ -174,7 +185,4 @@ async def fetch_tenant_stats(
     text, is_err = await call_memclaw_tool(session, "memclaw_stats", args)
     if is_err:
         return {}, text or "unknown MCP error"
-    try:
-        return json.loads(text), ""
-    except json.JSONDecodeError:
-        return {}, f"unexpected response shape: {text[:200]}"
+    return _parse_dict(text)
