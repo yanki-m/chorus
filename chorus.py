@@ -114,6 +114,8 @@ st.markdown(
   .kpi .lab   { font-size: 0.72rem; color: #666; margin-top: 2px; }
   .kpi-sub    { font-size: 0.72rem; color: #555; margin-top: 4px;
                 line-height: 1.45; }
+  .surface-line { font-size: 0.95rem; color: #333; line-height: 1.7; }
+  .surface-line:first-child { margin-top: 2px; }
   a.inline-refresh { font-size: 1rem; text-decoration: none; color: #888;
                      cursor: pointer; margin-left: 10px;
                      transition: color 0.15s; vertical-align: middle; }
@@ -388,35 +390,36 @@ def render_stats_strip() -> None:
             aid = m.get("agent_id")
             if aid:
                 by_agent[aid] = by_agent.get(aid, 0) + 1
-    last_write = format_relative(mems_local[0].get("created_at", "")) if mems_local else "never"
 
-    # Per-surface breakdown inside the memories KPI
+    # Per-surface breakdown (its own card on the right)
     breakdown_lines: list[str] = []
     known_ids = {i["agent_id"] for i in AGENT_IDENTITIES}
     for ident in AGENT_IDENTITIES:
         count = by_agent.get(ident["agent_id"], 0)
         if count > 0:
             breakdown_lines.append(
-                f'<div class="kpi-sub">'
+                f'<div class="surface-line">'
                 f'<span style="color:{ident["color"]}">{ident["emoji"]} {ident["display"]}</span>'
                 f' · {count}</div>'
             )
     other_count = sum(v for k, v in by_agent.items() if k not in known_ids)
     if other_count > 0:
         breakdown_lines.append(
-            f'<div class="kpi-sub" style="color:#888">other · {other_count}</div>'
+            f'<div class="surface-line" style="color:#888">other · {other_count}</div>'
         )
-    breakdown_html = "".join(breakdown_lines)
+    breakdown_html = (
+        "".join(breakdown_lines)
+        if breakdown_lines
+        else '<div class="lab" style="opacity:0.5">no writes yet</div>'
+    )
 
-    c1, c2 = st.columns([2, 1])
+    c1, c2 = st.columns([1, 2])
     c1.markdown(
-        f'<div class="kpi"><div class="val">{total} memories</div>'
-        f'{breakdown_html}</div>',
+        f'<div class="kpi"><div class="val">{total} memories</div></div>',
         unsafe_allow_html=True,
     )
     c2.markdown(
-        f'<div class="kpi"><div class="val">{last_write}</div>'
-        f'<div class="lab">last write</div></div>',
+        f'<div class="kpi">{breakdown_html}</div>',
         unsafe_allow_html=True,
     )
 
